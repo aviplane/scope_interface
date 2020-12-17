@@ -41,9 +41,22 @@ class ScopeInterface:
         time_relative_trigger = np.arange(0, -wvf_points * xinc, -xinc) - xorigin
         return time_relative_trigger, data
 
+    def get_all_voltages(self):
+        """
+        Get the voltage trace on the screen of every channel
+        
+        Outputs:
+            time - numpy array of times that data was taken
+            datas - list of voltages, corresponding to channel 1..n
+        """
+        values = [self.get_voltage(i) for i in range(self.n_channels) + 1]
+        times, datas = zip(*values)
+        return times[0], datas
+
     def set_timestep(self, timestep):
         """
         Set the scope timebase to timestep secs/division
+
         Input:
             timestep: float, secs/division
         """
