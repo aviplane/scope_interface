@@ -1,19 +1,22 @@
+import zprocess
 
 import pyvisa
 import numpy as np
 import time
+from device_server import DeviceServer
+import h5py
 
 class ScopeInterface:
     def __init__(self, identifying_string):
         self.resource_manager = pyvisa.ResourceManager()
-        all_devices = resource_manager.list_resources()
+        all_devices = self.resource_manager.list_resources()
         acceptable_devices = [i for i in all_devices if identifying_string in i]
         if acceptable_devices == []:
             raise Exception(
             f"Could not find device with identifying string {identifying_string}"
             + "Found devices:\n" + "\n".join(all_devices)
             )
-        self.scope = rm.open_resource(acceptable_devices[0])
+        self.scope = self.resource_manager.open_resource(acceptable_devices[0])
         self.n_channels = self.scope.query_ascii_values(":SYST:RAM?")[0]
 
     def get_voltage(self, channel):
@@ -41,17 +44,17 @@ class ScopeInterface:
         time_relative_trigger = np.arange(0, -wvf_points * xinc, -xinc) - xorigin
         return time_relative_trigger, data
 
-    def get_all_voltages(self):
+    def get_all_voltages(self, channels):
         """
         Get the voltage trace on the screen of every channel
-        
+
         Outputs:
             time - numpy array of times that data was taken
             datas - list of voltages, corresponding to channel 1..n
         """
-        values = [self.get_voltage(i) for i in range(self.n_channels) + 1]
+        values = [self.get_voltage(i) for i in channels + 1]
         times, datas = zip(*values)
-        return times[0], datas
+        return times[0][::-1], datas[::-1]
 
     def set_timestep(self, timestep):
         """
@@ -83,14 +86,16 @@ class ScopeServer(DeviceServer):
         print("Starting Scope Server")
         self.name = scope_name
         self.interface = ScopeInterface(scope_name)
-
+        self.channels = (1)
     def transition_to_buffered(self, h5_filepath):
         """
         Set timebase to correct values
         """
         with h5py.File(h5_filepath, 'r') as f:
-            timestep = 0.001
-            offset = 0
+            timestep = f['/devices/RigolScope'].attrs['timestep']
+            offset = f['/devices/RigolScope'].attrs['offset']
+            self.channels = f['/devices/RigolScope'].attrs['channels']
+            self.names = f['/devices/RigolScope'].attrs['names']
             self.interface.set_timestep(timestep)
             self.interface.set_timeoffset(offset)
 
@@ -98,7 +103,21 @@ class ScopeServer(DeviceServer):
         """
         Read scope values, write to h5 file.
         """
-        times, voltages = self.interface.get_voltage(1)
+        times, voltages = self.interface.get_all_voltages(self.channels)
+        with h5py.File(h5_filepath, 'r+') as f:
+            group = f['data']
+            #     if not 'EXPOSURES' in group:
+            #         print('No images taken this shot.')
+            #     else:
+            trace_group = f.create_group('ScopeTraces')
+            trace_group.create_dataset('times', data=times, dtype='float')
+            for name, voltage in zip(self.names, voltages):
+                trace_group.create_dataset(name, data=voltage, dtype='float')
+
+            #         print('Image saved.')
+            #         effective_pixel_size = f['/devices/Ixon'].attrs['effective_pixel_size']
+            #         f['IxonImages'].attrs['effective_pixel_size'] = effective_pixel_size
+
 
     def abort(self):
         """To be overridden by subclasses. Return cameras and any other state
@@ -112,3 +131,7 @@ class ScopeServer(DeviceServer):
         in performing one cleanup operation does not stop it from proceeding
         to subsequent cleanup operations"""
         print("abort")
+
+port = 2625
+kserver = ScopeServer("USB0::0x1AB1::0x04B0::DS2A152601549::INSTR")
+kserver.shutdown_on_interrupt()
