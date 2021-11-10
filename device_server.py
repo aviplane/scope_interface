@@ -6,6 +6,8 @@ Created on Thu Oct 04 17:53:55 2018
 """
 
 import sys
+sys.path.append("X:\\")
+import labscript_utils.h5_lock
 import time
 import zprocess
 import h5py

@@ -1,3 +1,7 @@
+import sys
+sys.path.append("X:\\")
+import labscript_utils.h5_lock
+from labscript_utils.ls_zprocess import ProcessTree
 import zprocess
 
 import pyvisa
@@ -6,6 +10,8 @@ import time
 from device_server import DeviceServer
 import h5py
 
+process_tree = ProcessTree.instance()
+process_tree.zlock_client.set_process_name("rigol-scope")
 
 class ScopeInterface:
     def __init__(self, identifying_string):
@@ -20,6 +26,7 @@ class ScopeInterface:
             )
         self.scope = self.resource_manager.open_resource(acceptable_devices[0])
         self.n_channels = self.scope.query_ascii_values(":SYST:RAM?")[0]
+        print(f'Connected to scope with {self.n_channels} channels')
 
     def get_voltage(self, channel):
         """
@@ -45,6 +52,7 @@ class ScopeInterface:
             ":WAV:PRE?")
         data = np.frombuffer(data, dtype="uint8", offset=12)
         data = (data - yref - yorigin) * yinc
+        data = data[:-1]
         print(f"yref={yref},yinc={yinc},yorigin={yorigin}")
         self.scope.write(":RUN")
         print(f"wvf_points={wvf_points}")
@@ -92,6 +100,7 @@ class ScopeInterface:
         if offset != current_offset:
             self.scope.write(f":TIM:OFFS {offset:f}")
             time.sleep(0.1)
+        print("Set time offset")
 
 
 class ScopeServer(DeviceServer):
@@ -121,13 +130,18 @@ class ScopeServer(DeviceServer):
         Read scope values, write to h5 file.
         """
         times, voltages = self.interface.get_all_voltages(self.channels)
-        with h5py.File(h5_filepath, 'r+') as f:
+        # while True:
+        #     try:
+        with h5py.File(h5_filepath, 'a') as f:
             group = f['data']
             trace_group = f.create_group('ScopeTraces')
             trace_group.create_dataset('times', data=times, dtype='float')
             for name, voltage in zip(self.names, voltages):
                 trace_group.create_dataset(name, data=voltage, dtype='float')
-
+            # except OSError:
+            #     print("h5 file error")
+            #     continue
+            # break
     def abort(self):
         """To be overridden by subclasses. Return cameras and any other state
         to one in which transition_to_buffered() can be called again. abort()
