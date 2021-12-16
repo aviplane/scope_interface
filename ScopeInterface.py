@@ -53,15 +53,14 @@ class ScopeInterface:
         data = np.frombuffer(data, dtype="uint8", offset=12)
         data = (data - yref - yorigin) * yinc
         data = data[:-1]
-        print(f"yref={yref},yinc={yinc},yorigin={yorigin}")
-        self.scope.write(":RUN")
-        print(f"wvf_points={wvf_points}")
-        print(f"xinc={xinc}")
         #time_relative_trigger = np.arange(0, -wvf_points * xinc, -xinc) - xorigin
         time_relative_trigger = np.linspace(
             0, -(wvf_points - 1) * xinc, int(wvf_points)) - xorigin
-        print(f"data shape = {data.shape}")
         return time_relative_trigger, data
+
+    def run(self):
+        self.scope.write(":RUN")
+
 
     def get_all_voltages(self, channels):
         """
@@ -105,24 +104,29 @@ class ScopeInterface:
 
 class ScopeServer(DeviceServer):
 
-    def __init__(self, scope_name):
+    def __init__(self, scope_name, port, device_name):
+        print(port)
         super().__init__(port)
         print("Starting Scope Server")
         self.name = scope_name
         self.interface = ScopeInterface(scope_name)
         self.channels = (1)
+        self.device_name = device_name
 
     def transition_to_buffered(self, h5_filepath):
         """
         Set timebase to correct values
         """
         with h5py.File(h5_filepath, 'r') as f:
-            timestep = f['/devices/RigolScope'].attrs['timestep']
-            offset = f['/devices/RigolScope'].attrs['offset']
-            self.channels = f['/devices/RigolScope'].attrs['channels']
-            self.names = f['/devices/RigolScope'].attrs['names']
+            dset = f'/devices/{self.device_name}'
+            parameters = f[dset].attrs
+            timestep = parameters['timestep']
+            offset = parameters['offset']
+            self.channels = parameters['channels']
+            self.names = parameters['names']
         self.interface.set_timestep(timestep)
         self.interface.set_timeoffset(offset)
+        self.interface.run()
         return True
 
     def transition_to_static(self, h5_filepath):
@@ -134,9 +138,13 @@ class ScopeServer(DeviceServer):
         #     try:
         with h5py.File(h5_filepath, 'a') as f:
             group = f['data']
-            trace_group = f.create_group('ScopeTraces')
-            trace_group.create_dataset('times', data=times, dtype='float')
+            try:
+                trace_group = f.create_group('ScopeTraces')
+            except ValueError:
+                trace_group = f['ScopeTraces']
+                print("Group Already existed")
             for name, voltage in zip(self.names, voltages):
+                trace_group.create_dataset('times' + name, data=times, dtype='float')
                 trace_group.create_dataset(name, data=voltage, dtype='float')
             # except OSError:
             #     print("h5 file error")
@@ -155,8 +163,8 @@ class ScopeServer(DeviceServer):
         to subsequent cleanup operations"""
         print("abort")
 
+if __name__ == '__main__':
+    port = 2625
 
-port = 2625
-
-kserver = ScopeServer("USB0::0x1AB1::0x04CE::DS1ZA205020654::INSTR")
-kserver.shutdown_on_interrupt()
+    kserver = ScopeServer("USB0::0x1AB1::0x04CE::DS1ZA205020654::INSTR", port, "RigolScope")
+    kserver.shutdown_on_interrupt()
