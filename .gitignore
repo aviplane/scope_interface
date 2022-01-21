@@ -1,3 +1,5 @@
 
 *.pyc
 Untitled.ipynb
+.idea/modules.xml
+.idea/scope_interface.iml

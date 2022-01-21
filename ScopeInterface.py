@@ -28,7 +28,7 @@ class ScopeInterface:
         self.n_channels = self.scope.query_ascii_values(":SYST:RAM?")[0]
         print(f'Connected to scope with {self.n_channels} channels')
 
-    def get_voltage(self, channel):
+    def get_voltage(self, channel, stop = True):
         """
         Inputs:
             Channel - integer
@@ -41,7 +41,8 @@ class ScopeInterface:
         if channel > self.n_channels or channel < 1:
             raise Exception(
                 f"Channel must be between 1 and {self.n_channels}.")
-        self.scope.write(":STOP")
+        if stop:
+            self.scope.write(":STOP")
         self.scope.write(f':WAV:SOUR CHAN{channel}')
         self.scope.write(':WAV:MODE norm')
 #        self.scope.write(":TRIG:EDGE:SWE NORM")
@@ -62,7 +63,7 @@ class ScopeInterface:
         self.scope.write(":RUN")
 
 
-    def get_all_voltages(self, channels):
+    def get_all_voltages(self, channels, stop = True):
         """
         Get the voltage trace on the screen of every channel
 
@@ -70,7 +71,7 @@ class ScopeInterface:
             time - numpy array of times that data was taken
             datas - list of voltages, corresponding to channel 1..n
         """
-        values = [self.get_voltage(i) for i in channels + 1]
+        values = [self.get_voltage(i, stop) for i in channels + 1]
         times, datas = zip(*values)
         return times[0][::-1], datas[::-1]
 
@@ -146,10 +147,7 @@ class ScopeServer(DeviceServer):
             for name, voltage in zip(self.names, voltages):
                 trace_group.create_dataset('times' + name, data=times, dtype='float')
                 trace_group.create_dataset(name, data=voltage, dtype='float')
-            # except OSError:
-            #     print("h5 file error")
-            #     continue
-            # break
+
     def abort(self):
         """To be overridden by subclasses. Return cameras and any other state
         to one in which transition_to_buffered() can be called again. abort()
