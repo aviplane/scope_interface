@@ -27,9 +27,12 @@ class ScopeInterface:
             )
         self.scope = self.resource_manager.open_resource(acceptable_devices[0])
         #self.scope.read_termination="\n"
-        id = self.scope.query("*IDN?")
+        sid = self.scope.query("*IDN?")
         self.n_channels = self.scope.query_ascii_values(":SYST:RAM?")[0]
-        print(f'Connected to scope {id} with {self.n_channels} channels')
+        print(f'Connected to scope {sid} with {self.n_channels} channels')
+        self.scope.write(":ACQ:MDEP 30000")
+        mdep = self.scope.query_ascii_values(":ACQ:MDEP?")
+        print(f"Set memdepth to {mdep}")
 
     def get_voltage(self, channel, stop = True):
         """
@@ -48,21 +51,20 @@ class ScopeInterface:
         if stop:
             self.scope.write(":STOP")
         self.scope.write(f':WAV:SOUR CHAN{channel}')
-        self.scope.write(':WAV:MODE norm')
-#        self.scope.write(":TRIG:EDGE:SWE NORM")
+        self.scope.write(':WAV:MODE raw')
         self.scope.write(':WAV:FORM byte')
+        self.scope.write(':WAV:STOP 30000')
         self.scope.write(":WAV:DATA?")
         data = self.scope.read_raw()
-        _, _, wvf_points, _, xinc, xorigin, xref, yinc, yorigin, yref = self.scope.query_ascii_values(
+        _, _, _, _, xinc, xorigin, xref, yinc, yorigin, yref = self.scope.query_ascii_values(
             ":WAV:PRE?")
         data = np.frombuffer(data, dtype="uint8", offset=12)
         data = (data - yref - yorigin) * yinc
         data = data[:-1]
         #time_relative_trigger = np.arange(0, -wvf_points * xinc, -xinc) - xorigin
-        time_relative_trigger = np.linspace(
-            0, (wvf_points - 1) * xinc, int(wvf_points)) - xorigin
-
-        return time_relative_trigger[:-1], data
+        wvf_points = len(data)
+        time_relative_trigger = np.arange(0, wvf_points * xinc, xinc) + xorigin
+        return time_relative_trigger, data
 
     def run(self):
         self.scope.write(":RUN")
